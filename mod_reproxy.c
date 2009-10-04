@@ -57,7 +57,7 @@ static void unset_header(request_rec* r, const char* n)
 }
 
 typedef struct {
-  apr_pool_t* pool;
+  ap_filter_t* filt;
   apr_bucket_brigade* bb;
 } reproxy_curl_cb_info;
 
@@ -69,13 +69,16 @@ static size_t reproxy_curl_cb(const void* ptr, size_t size, size_t nmemb,
   apr_bucket* b;
   if (nmemb == 0)
     return 0;
-  if ((d = apr_pmemdup(info->pool, ptr, size * nmemb)) == NULL)
+  if ((d = malloc(size * nmemb)) == NULL)
     return 0;
-  if ((b = apr_bucket_pool_create(d, size * nmemb, info->pool,
+  memcpy(d, ptr, size * nmemb);
+  if ((b = apr_bucket_heap_create(d, size * nmemb, free,
 				  info->bb->bucket_alloc))
       == NULL)
     return 0;
   APR_BRIGADE_INSERT_TAIL(info->bb, b);
+  if (ap_pass_brigade(info->filt->next, info->bb) != APR_SUCCESS)
+    return 0;
   return nmemb;
 }
 
@@ -116,7 +119,7 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
     CURL* curl = curl_easy_init();
     reproxy_curl_cb_info info;
     assert(curl != NULL);
-    info.pool = r->pool;
+    info.filt = f;
     info.bb = in_bb;
     curl_easy_setopt(curl, CURLOPT_URL, reproxy_url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reproxy_curl_cb);
