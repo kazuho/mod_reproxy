@@ -9,6 +9,9 @@
 
 module AP_MODULE_DECLARE_DATA reproxy_module;
 
+#define REPROXY_VERSION 0.01
+#define REPROXY_VERSION_STR "0.01"
+
 #define REPROXY_FLAG_UNSET -1
 #define REPROXY_FLAG_OFF 0
 #define REPROXY_FLAG_ON 1
@@ -156,6 +159,10 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, reproxy_curl_header_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &info);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reproxy_curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT,
+		     apr_psprintf(r->pool,
+				  "mod_reproxy/" REPROXY_VERSION_STR " %s",
+				  curl_version()));
     ret = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
     if (ret != 0) {
