@@ -69,10 +69,10 @@ static size_t reproxy_curl_cb(const void* ptr, size_t size, size_t nmemb,
   apr_bucket* b;
   if (nmemb == 0)
     return 0;
-  if ((d = apr_palloc(info->pool, size)) == NULL)
+  if ((d = apr_pmemdup(info->pool, ptr, size * nmemb)) == NULL)
     return 0;
-  memcpy(d, ptr, size);
-  if ((b = apr_bucket_pool_create(d, size, info->pool, info->bb->bucket_alloc))
+  if ((b = apr_bucket_pool_create(d, size * nmemb, info->pool,
+				  info->bb->bucket_alloc))
       == NULL)
     return 0;
   APR_BRIGADE_INSERT_TAIL(info->bb, b);
@@ -102,7 +102,8 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
   
   /* drop all content and headers related */
   while (! APR_BRIGADE_EMPTY(in_bb)) {
-    apr_bucket_delete(APR_BRIGADE_FIRST(in_bb));
+    apr_bucket* b = APR_BRIGADE_FIRST(in_bb);
+    apr_bucket_delete(b);
   }
   r->eos_sent = 0;
   r->clength = 0;
