@@ -1,12 +1,13 @@
 #include <assert.h>
 #include <curl/curl.h>
 #include "apr.h"
+#include "apr_strings.h"
 #include "apr_lib.h"
 #include "apr_buckets.h"
 #include "ap_config.h"
 #include "httpd.h"
 #include "http_config.h"
-#define CORE_PRIVATE
+#include "http_protocol.h"
 #include "http_request.h"
 #include "http_core.h"
 #include "util_filter.h"
@@ -61,8 +62,29 @@ typedef struct {
   apr_bucket_brigade* bb;
 } reproxy_curl_cb_info;
 
-static size_t reproxy_curl_cb(const void* ptr, size_t size, size_t nmemb,
-			      void* _info)
+static size_t reproxy_curl_header_cb(const void* ptr, size_t size, size_t nmemb,
+				     void* _info)
+{
+  reproxy_curl_cb_info* info = _info;
+  
+  if (strncasecmp(ptr, "content-type:", sizeof("content-type:") - 1) == 0) {
+    request_rec* r = info->filt->r;
+    const char* s = (const char*)ptr + sizeof("content-type:") - 1,
+      * e = (const char*)ptr + size * nmemb - 1;
+    for (; s <= e; --e)
+      if (*e != '\r' && *e != '\n')
+	break;
+    for (; s <= e; ++s)
+      if (*s != ' ' && *s != '\t')
+	break;
+    ap_set_content_type(r, apr_pstrndup(r->pool, s, e - s + 1));
+  }
+  
+  return nmemb;
+}
+
+static size_t reproxy_curl_write_cb(const void* ptr, size_t size, size_t nmemb,
+				    void* _info)
 {
   reproxy_curl_cb_info* info = _info;
   void* d;
@@ -122,8 +144,10 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
     info.filt = f;
     info.bb = in_bb;
     curl_easy_setopt(curl, CURLOPT_URL, reproxy_url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reproxy_curl_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEHEADER, &info);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, reproxy_curl_header_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &info);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reproxy_curl_write_cb);
     /* TODO: check response */curl_easy_perform(curl);
     curl_easy_cleanup(curl);
   }
