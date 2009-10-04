@@ -1,27 +1,26 @@
 #include <assert.h>
 #include <curl/curl.h>
-#include "apr.h"
 #include "apr_strings.h"
-#include "apr_lib.h"
-#include "apr_buckets.h"
-#include "ap_config.h"
 #include "httpd.h"
 #include "http_config.h"
+#include "http_log.h"
 #include "http_protocol.h"
 #include "http_request.h"
-#include "http_core.h"
-#include "util_filter.h"
 
 module AP_MODULE_DECLARE_DATA reproxy_module;
 
+#define REPROXY_FLAG_UNSET -1
+#define REPROXY_FLAG_OFF 0
+#define REPROXY_FLAG_ON 1
+
 typedef struct {
-  int enabled; /* -1: unset, 0: disabled, 1: enabled */
+  int enabled;
 } reproxy_conf;
 
 static void* config_create(apr_pool_t* p)
 {
   reproxy_conf* conf = apr_palloc(p, sizeof(reproxy_conf));
-  conf->enabled = -1;
+  conf->enabled = REPROXY_FLAG_UNSET;
   return conf;
 }
 
@@ -40,14 +39,15 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   reproxy_conf* base = _base,
     * override = _override,
     * conf = apr_palloc(p, sizeof(reproxy_conf));
-  conf->enabled = override->enabled != -1 ? override->enabled : base->enabled;
+  conf->enabled = override->enabled != REPROXY_FLAG_UNSET
+    ? override->enabled : base->enabled;
   return conf;
 }
 
 static const char* reproxy_cmd(cmd_parms* cmd, void* _conf, int flag)
 {
   reproxy_conf* conf = _conf;
-  conf->enabled = flag != 0;
+  conf->enabled = flag ? REPROXY_FLAG_ON : REPROXY_FLAG_OFF;
   return NULL;
 }
 
@@ -67,7 +67,12 @@ static size_t reproxy_curl_header_cb(const void* ptr, size_t size, size_t nmemb,
 {
   reproxy_curl_cb_info* info = _info;
   
-  if (strncasecmp(ptr, "content-type:", sizeof("content-type:") - 1) == 0) {
+  if (strncmp(ptr, "HTTP/1.", sizeof("HTTP/1.") - 1) == 0) {
+    int minor_ver, status;
+    if (sscanf(ptr, "HTTP/1.%d %d ", &minor_ver, &status) == 2 && status != 200)
+      info->filt->r->status = status;
+  } else if (strncasecmp(ptr, "content-type:", sizeof("content-type:") - 1)
+	     == 0) {
     request_rec* r = info->filt->r;
     const char* s = (const char*)ptr + sizeof("content-type:") - 1,
       * e = (const char*)ptr + size * nmemb - 1;
@@ -111,8 +116,8 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
   request_rec* r =f->r;
   const char* reproxy_url;
   
-  /* pass thru on error, subreq, or default handler */
-  if (r->status != HTTP_OK || r->main != NULL
+  /* pass thru by request types */
+  if (r->status != HTTP_OK || r->main != NULL || r->header_only
       || (r->handler != NULL && strcmp(r->handler, "default-handler") == 0))
     goto PASS_THRU;
   
@@ -140,17 +145,27 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
   
   { /* retrieve data using curl */
     CURL* curl = curl_easy_init();
+    CURLcode ret;
     reproxy_curl_cb_info info;
     assert(curl != NULL);
     info.filt = f;
     info.bb = in_bb;
     curl_easy_setopt(curl, CURLOPT_URL, reproxy_url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEHEADER, &info);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, reproxy_curl_header_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &info);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reproxy_curl_write_cb);
-    /* TODO: check response */curl_easy_perform(curl);
+    ret = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
+    if (ret != 0) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
+		   "reproxy: libcurl returned error (%d) while trying to retrieve url: %s",
+		   ret, reproxy_url);
+      r->status = HTTP_INTERNAL_SERVER_ERROR;
+      ap_send_error_response(r, 0);
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }
   }
   APR_BRIGADE_INSERT_TAIL(in_bb, apr_bucket_eos_create(in_bb->bucket_alloc));
   
@@ -163,10 +178,10 @@ static void reproxy_insert_output_filter(request_rec* r)
 {
   reproxy_conf* conf =
     (reproxy_conf*)ap_get_module_config(r->per_dir_config, &reproxy_module);
-  if (conf->enabled == -1)
+  if (conf->enabled == REPROXY_FLAG_UNSET)
     conf = (reproxy_conf*)ap_get_module_config(r->server->module_config,
 					       &reproxy_module);
-  if (conf->enabled == 1)
+  if (conf->enabled == REPROXY_FLAG_ON)
     ap_add_output_filter("REPROXY", NULL, r, r->connection);
 }
 
