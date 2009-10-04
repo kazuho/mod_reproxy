@@ -1,0 +1,9 @@
+mod_reproxy 0.01
+
+This module adds x-reproxy-url header support to Apache/2.x.
+
+To install:
+  # apxs -i -a -c -Wc,-Wall -Wc,-g -Wc,-O2 -lcurl mod_reproxy.c
+
+To enable the module (in httpd.conf):
+  Reproxy On
