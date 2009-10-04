@@ -77,7 +77,8 @@ static size_t reproxy_curl_header_cb(const void* ptr, size_t size, size_t nmemb,
     for (; s <= e; ++s)
       if (*s != ' ' && *s != '\t')
 	break;
-    ap_set_content_type(r, apr_pstrndup(r->pool, s, e - s + 1));
+    if (s <= e)
+      ap_set_content_type(r, apr_pstrndup(r->pool, s, e - s + 1));
   }
   
   return nmemb;
