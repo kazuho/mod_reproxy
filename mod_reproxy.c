@@ -167,9 +167,12 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
     CURL* curl = curl_easy_init();
     CURLcode ret;
     reproxy_curl_cb_info info;
+    int threaded_mpm;
     assert(curl != NULL);
     info.filt = f;
     info.bb = in_bb;
+    ap_mpm_query(APMPMQ_IS_THREADED, &threaded_mpm);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, threaded_mpm);
     curl_easy_setopt(curl, CURLOPT_URL, reproxy_url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEHEADER, &info);
