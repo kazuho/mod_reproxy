@@ -90,8 +90,16 @@ static size_t reproxy_curl_header_cb(const void* ptr, size_t size, size_t nmemb,
   
   if (strncmp(ptr, "HTTP/1.", sizeof("HTTP/1.") - 1) == 0) {
     int minor_ver, status;
-    if (sscanf(ptr, "HTTP/1.%d %d ", &minor_ver, &status) == 2 && status != 200)
-      info->filt->r->status = status;
+    if (sscanf(ptr, "HTTP/1.%d %d ", &minor_ver, &status) == 2
+	&& status != 200) {
+      /* 40x and 50x codes expect 503 should be converted to 500 */
+      if ((400 <= status && status < 500)
+	  || (500 <= status && status < 600 && status != 503)) {
+	info->filt->r->status = 500;
+      } else {
+	info->filt->r->status = status;
+      }
+    }
   } else if (strncasecmp(ptr, "content-type:", sizeof("content-type:") - 1)
 	     == 0) {
     request_rec* r = info->filt->r;
