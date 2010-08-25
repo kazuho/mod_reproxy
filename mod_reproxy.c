@@ -100,19 +100,6 @@ static size_t reproxy_curl_header_cb(const void* ptr, size_t size, size_t nmemb,
 	info->filt->r->status = status;
       }
     }
-  } else if (strncasecmp(ptr, "content-type:", sizeof("content-type:") - 1)
-	     == 0) {
-    request_rec* r = info->filt->r;
-    const char* s = (const char*)ptr + sizeof("content-type:") - 1,
-      * e = (const char*)ptr + size * nmemb - 1;
-    for (; s <= e; --e)
-      if (*e != '\r' && *e != '\n')
-	break;
-    for (; s <= e; ++s)
-      if (*s != ' ' && *s != '\t')
-	break;
-    if (s <= e)
-      ap_set_content_type(r, apr_pstrndup(r->pool, s, e - s + 1));
   }
   
   return nmemb;

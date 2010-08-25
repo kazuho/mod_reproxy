@@ -7,9 +7,10 @@ use CGI;
 
 my $query = CGI->new();
 my $reproxy_url = $query->param('url') || '';
+my $mime_type = $query->param('type') || 'text/plain';
 
 print << "EOT";
-Content-Type: text/plain
+Content-Type: $mime_type
 X-Reproxy-URL: $reproxy_url
 
 should never see this

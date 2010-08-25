@@ -22,7 +22,7 @@ sub do_test ($$) {
         client => sub {
             my $port = shift;
             my $r = LWP::UserAgent->new->get(
-                "$reproxy_cgi?url=http://127.0.0.1:$port/",
+                "$reproxy_cgi?url=http://127.0.0.1:$port/&type=text/plain",
             );
             $check_response->($r);
         },
@@ -32,11 +32,12 @@ sub do_test ($$) {
 # test 200 OK
 do_test
     sub {
-        return [ 200, [ 'Content-Type', 'text/plain' ], [ 'hello' ] ];
+        return [ 200, [ 'Content-Type', 'text/x-hogehoge' ], [ 'hello' ] ];
     },
     sub {
         my $r = shift;
         is $r->code, 200, '200 status';
+        is $r->content_type, 'text/plain', '200 content type';
         is $r->content, 'hello', '200 content';
     };
 
