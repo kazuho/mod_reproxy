@@ -23,6 +23,7 @@
 #include "http_log.h"
 #include "http_protocol.h"
 #include "http_request.h"
+#include "ap_mpm.h"
 
 module AP_MODULE_DECLARE_DATA reproxy_module;
 
@@ -171,7 +172,7 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
     assert(curl != NULL);
     info.filt = f;
     info.bb = in_bb;
-    ap_mpm_query(APMPMQ_IS_THREADED, &threaded_mpm);
+    ap_mpm_query(AP_MPMQ_IS_THREADED, &threaded_mpm);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, threaded_mpm);
     curl_easy_setopt(curl, CURLOPT_URL, reproxy_url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
