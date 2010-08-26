@@ -1,13 +1,22 @@
 use strict;
 use warnings;
 
+use Test::Httpd::Apache2;
 use Test::More;
 use Test::TCP;
 use Plack::Loader;
 use LWP::UserAgent;
 
-my $reproxy_cgi =
-    $ENV{REPROXY_CGI} || 'http://127.0.0.1/~kazuho/reproxy.cgi';
+my $httpd = Test::Httpd::Apache2->new(
+    required_modules => [ qw(cgi mime reproxy) ],
+    custom_conf => << "EOT",
+DocumentRoot t/assets
+AddHandler cgi-script .cgi
+Reproxy On
+EOT
+);
+
+my $reproxy_cgi = "http://@{[$httpd->listen]}/reproxy.cgi";
 
 sub do_test ($$) {
     my ($server_app, $check_response) = @_;
