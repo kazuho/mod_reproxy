@@ -22,7 +22,7 @@ test_tcp(
             custom_conf      => << "EOT",
 <Location />
   ProxyPass http://127.0.0.1:$port/
-  ProxyPassReverse http://127.0.01:$port/
+  ProxyPassReverse http://127.0.0.1:$port/
 </Location>
 Reproxy On
 EOT
