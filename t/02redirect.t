@@ -65,7 +65,6 @@ EOT
                 . "http://127.0.0.1:$port/redirect_loop",
         );
         is $r->code, 500, '500 on infinite loop';
-        warn $r->message;
     },
 );
 
