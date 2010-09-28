@@ -1,5 +1,6 @@
 /* 
  * Copyright 2009 Kazuho Oku
+ * Copyright 2010 Cybozu Labs, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
  */
 
 #include <assert.h>
+#include "apr_fnmatch.h"
 #include "apr_strings.h"
 #include "httpd.h"
 #include "http_config.h"
@@ -48,6 +50,7 @@ typedef struct {
   int request_timeout;
   int response_timeout;
   int max_redirects;
+  const char* allow_re;
 } reproxy_conf;
 
 static void* config_create(apr_pool_t* p)
@@ -57,6 +60,7 @@ static void* config_create(apr_pool_t* p)
   conf->request_timeout = REPROXY_TIMEOUT_UNSET;
   conf->response_timeout = REPROXY_TIMEOUT_UNSET;
   conf->max_redirects = REPROXY_MAX_REDIRECTS_UNSET;
+  conf->allow_re = NULL;
   return conf;
 }
 
@@ -83,16 +87,33 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   SET(request_timeout, REPROXY_TIMEOUT_UNSET);
   SET(response_timeout, REPROXY_TIMEOUT_UNSET);
   SET(max_redirects, REPROXY_MAX_REDIRECTS_UNSET);
+  SET(allow_re, NULL);
   
 #undef SET
   
   return conf;
 }
 
-static const char* reproxy_cmd(cmd_parms* cmd, void* _conf, int flag)
+static const char* set_reproxy_flag(cmd_parms* cmd, void* _conf, int flag)
 {
   reproxy_conf* conf = _conf;
   conf->enabled = flag ? REPROXY_FLAG_ON : REPROXY_FLAG_OFF;
+  return NULL;
+}
+
+static const char* set_reproxy_intval(cmd_parms* cmd, void* _conf,
+				      const char* value)
+{
+  reproxy_conf* conf = _conf;
+  *(int*)((char*)conf + (size_t)cmd->info) = atoi(value);
+  return NULL;
+}
+
+static const char* set_reproxy_allow_re(cmd_parms* cmd, void* _conf,
+					const char* value)
+{
+  reproxy_conf* conf = _conf;
+  conf->allow_re = value;
   return NULL;
 }
 
@@ -365,6 +386,15 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
        ;
        --left_redirect_cnt) {
     char* redirect_url;
+    /* check if access is allowed */
+    if (conf->allow_re != NULL
+	&& (apr_fnmatch(conf->allow_re, url, APR_FNM_PATHNAME)
+	    == APR_FNM_NOMATCH)) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
+		   "reproxy: access denied by rule to url: %s", url);
+      rv = HTTP_INTERNAL_SERVER_ERROR;
+      goto ON_EXIT;
+    }
     /* connect to and send request */
     if ((rv = send_reproxy_request(conf, r, url, &sock)) != APR_SUCCESS)
       goto ON_EXIT;
@@ -515,7 +545,18 @@ static void reproxy_insert_output_filter(request_rec* r)
 }
 
 static const command_rec reproxy_cmds[] = {
-  AP_INIT_FLAG("Reproxy", reproxy_cmd, NULL, OR_OPTIONS, "On|Off"),
+  AP_INIT_FLAG("Reproxy", set_reproxy_flag, NULL, OR_OPTIONS, "On|Off"),
+  AP_INIT_TAKE1("ReproxyRequestTimeout", set_reproxy_intval,
+		(void*)APR_OFFSETOF(reproxy_conf, request_timeout), OR_OPTIONS,
+		"request timeout of the reproxy connection (in seconds)"),
+  AP_INIT_TAKE1("ReproxyResponseTimeout", set_reproxy_intval,
+		(void*)APR_OFFSETOF(reproxy_conf, response_timeout), OR_OPTIONS,
+		"response timeout of the reproxy connection (in seconds)"),
+  AP_INIT_TAKE1("ReproxyMaxRedirects", set_reproxy_intval,
+		(void*)APR_OFFSETOF(reproxy_conf, max_redirects), OR_OPTIONS,
+		"max redirection # of the reproxy connection (in seconds)"),
+  AP_INIT_TAKE1("ReproxyAllow", set_reproxy_allow_re, NULL, OR_OPTIONS,
+		"regex to limit access of the reproxy module"),
   { NULL },
 };
 
