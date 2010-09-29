@@ -50,7 +50,7 @@ typedef struct {
   int request_timeout;
   int response_timeout;
   int max_redirects;
-  const char* allow_re;
+  ap_regex_t* limit_re;
 } reproxy_conf;
 
 static void* config_create(apr_pool_t* p)
@@ -60,7 +60,7 @@ static void* config_create(apr_pool_t* p)
   conf->request_timeout = REPROXY_TIMEOUT_UNSET;
   conf->response_timeout = REPROXY_TIMEOUT_UNSET;
   conf->max_redirects = REPROXY_MAX_REDIRECTS_UNSET;
-  conf->allow_re = NULL;
+  conf->limit_re = NULL;
   return conf;
 }
 
@@ -87,7 +87,7 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   SET(request_timeout, REPROXY_TIMEOUT_UNSET);
   SET(response_timeout, REPROXY_TIMEOUT_UNSET);
   SET(max_redirects, REPROXY_MAX_REDIRECTS_UNSET);
-  SET(allow_re, NULL);
+  SET(limit_re, NULL);
   
 #undef SET
   
@@ -109,11 +109,15 @@ static const char* set_reproxy_intval(cmd_parms* cmd, void* _conf,
   return NULL;
 }
 
-static const char* set_reproxy_allow_re(cmd_parms* cmd, void* _conf,
+static const char* set_reproxy_limit_re(cmd_parms* cmd, void* _conf,
 					const char* value)
 {
   reproxy_conf* conf = _conf;
-  conf->allow_re = value;
+  if ((conf->limit_re = ap_pregcomp(cmd->pool, value,
+				    AP_REG_EXTENDED | AP_REG_NOSUB))
+      == NULL) {
+    return "Failed to compile regular expression";
+  }
   return NULL;
 }
 
@@ -387,9 +391,8 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
        --left_redirect_cnt) {
     char* redirect_url;
     /* check if access is allowed */
-    if (conf->allow_re != NULL
-	&& (apr_fnmatch(conf->allow_re, url, APR_FNM_PATHNAME)
-	    == APR_FNM_NOMATCH)) {
+    if (conf->limit_re != NULL
+	&& ap_regexec(conf->limit_re, url, 0, NULL, AP_REG_EXTENDED) != 0) {
       ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
 		   "reproxy: access denied by rule to url: %s", url);
       rv = HTTP_INTERNAL_SERVER_ERROR;
@@ -555,7 +558,7 @@ static const command_rec reproxy_cmds[] = {
   AP_INIT_TAKE1("ReproxyMaxRedirects", set_reproxy_intval,
 		(void*)APR_OFFSETOF(reproxy_conf, max_redirects), OR_OPTIONS,
 		"max redirection # of the reproxy connection (in seconds)"),
-  AP_INIT_TAKE1("ReproxyAllow", set_reproxy_allow_re, NULL, OR_OPTIONS,
+  AP_INIT_TAKE1("ReproxyLimitURL", set_reproxy_limit_re, NULL, OR_OPTIONS,
 		"regex to limit access of the reproxy module"),
   { NULL },
 };
