@@ -1,9 +1,24 @@
-mod_reproxy 0.01
+mod_reproxy 0.02
 
 This module adds x-reproxy-url header support to Apache/2.x.
 
-To install:
-  # apxs -i -a -c -Wc,-Wall -Wc,-g -Wc,-O2 -lcurl mod_reproxy.c
+Install:
+  # apxs -i -a -c -Wc,-Wall -Wc,-g -Wc,-O2 mod_reproxy.c
 
-To enable the module (in httpd.conf):
-  Reproxy On
+Configuration Directives:
+
+# turns on/off the x-reproxy-url header support
+Reproxy On|Off                     
+
+# set request wait timeout in seconds (default: 30)
+ReproxyRequestTimeout <seconds>
+
+# set repsonse wait timeout in seconds (default: 30)
+ReproxyResponseTimeout <seconds>
+
+# sets maximum redirect count (default: 5)
+ReproxyMaxRedirects <number>
+
+# if set, mod_reproxy would only retreive the resources from URL that matches
+# the given pattern (default: none)
+ReproxyLimitURL <regex>
