@@ -10,6 +10,7 @@ my $test = t::Test->new(
 DocumentRoot t/assets
 AddHandler cgi-script .cgi
 Reproxy On
+TypesConfig /dev/null
 EOT
 );
 

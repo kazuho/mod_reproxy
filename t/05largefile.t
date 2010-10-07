@@ -30,6 +30,7 @@ test_tcp(
 DocumentRoot t/assets
 AddHandler cgi-script .cgi
 AddType image/jpeg .jpg
+TypesConfig /dev/null
 Reproxy On
 EOT
         );
