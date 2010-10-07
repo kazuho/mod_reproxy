@@ -365,7 +365,7 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
   *content_length = fetch_phr_content_length(headers, num_headers, r->pool);
   if (bufsz != reqsz) {
     *buffered_content = buf + reqsz;
-    *buffered_content_length = reqsz - bufsz;
+    *buffered_content_length = bufsz - reqsz;
   }
   return APR_SUCCESS;
 }
