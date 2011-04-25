@@ -342,6 +342,7 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
  PARSE_COMPLETE:
   switch (status) {
   case 200: /* ok, fill in the values */
+  case 404: /* pass though some other values, too */
     break;
   case 301: case 302: case 303: case 307: /* redicet */
     if ((*redirect_url = find_phr_header(headers, num_headers, "location",
@@ -367,7 +368,7 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
     *buffered_content = buf + reqsz;
     *buffered_content_length = bufsz - reqsz;
   }
-  return APR_SUCCESS;
+  return status;
 }
 
 static apr_status_t rewrite_response(ap_filter_t* filt,
