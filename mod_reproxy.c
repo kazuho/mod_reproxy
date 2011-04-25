@@ -260,11 +260,11 @@ static apr_status_t send_reproxy_request(reproxy_conf* conf, request_rec* r,
   /* build and send request (no need to set timeout since all request will go
    * into SNDBUF anyway */
   req = apr_psprintf(r->pool,
-		     "GET %s HTTP/1.0\r\n"
+		     "%s %s HTTP/1.0\r\n"
 		     "Host: %s\r\n"
 		     "User-Agent: mod_reproxy/" REPROXY_VERSION_STR "\r\n"
 		     "\r\n",
-		     path, hostport);
+             r->header_only ? "HEAD" : "GET", path, hostport);
   if ((rv = send_fully(sock, req, req + strlen(req))) != APR_SUCCESS) {
     ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
 		 "reproxy: an error occured while sending request to url: %s\n",
@@ -502,7 +502,7 @@ static apr_status_t reproxy_output_filter(ap_filter_t* f,
   const char* reproxy_url;
   
   /* pass thru by request types */
-  if (r->status != HTTP_OK || r->main != NULL || r->header_only
+  if (r->status != HTTP_OK || r->main != NULL 
       || (r->handler != NULL && strcmp(r->handler, "default-handler") == 0))
     goto PASS_THRU;
   
