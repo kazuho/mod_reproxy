@@ -361,14 +361,16 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
     /* 503 should be returned as 503, others are converted to 500 */
     return status == 503 ? 503 : HTTP_INTERNAL_SERVER_ERROR;
   }
-  
-  /* response is 200, fill in the values */
-  *content_length = fetch_phr_content_length(headers, num_headers, r->pool);
-  if (bufsz != reqsz) {
-    *buffered_content = buf + reqsz;
-    *buffered_content_length = bufsz - reqsz;
+
+  if ( ! r->header_only ) {
+    /* response is 200, fill in the values */
+    *content_length = fetch_phr_content_length(headers, num_headers, r->pool);
+    if (bufsz != reqsz) {
+      *buffered_content = buf + reqsz;
+      *buffered_content_length = bufsz - reqsz;
+    }
   }
-  return status;
+  return APR_SUCCESS;
 }
 
 static apr_status_t rewrite_response(ap_filter_t* filt,
