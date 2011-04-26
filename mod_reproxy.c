@@ -484,10 +484,6 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
     }
   }
   
-  /* send eof */
-  APR_BRIGADE_INSERT_TAIL(in_bb, apr_bucket_eos_create(in_bb->bucket_alloc));
-  rv = ap_pass_brigade(filt->next, in_bb);
-  
  ON_EXIT:
   if (sent_length == 0 && rv != APR_SUCCESS) {
     r->status = rv;
