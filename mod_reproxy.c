@@ -340,6 +340,17 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
   return HTTP_INTERNAL_SERVER_ERROR;
   
  PARSE_COMPLETE:
+  { /* Copy headers so that it's propagated */
+    int i;
+    for (i = 0; i != num_headers; i++) {
+      if ( strncasecmp(headers[i].name, "Date", headers[i].name_len) == 0 ) {
+        continue;
+      }
+      apr_table_add( r->headers_out, headers[i].name, headers[i].value );
+    }
+  }
+
+
   switch (status) {
   case 200: /* ok, fill in the values */
   case 404: /* pass though some other values, too */
