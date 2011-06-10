@@ -51,6 +51,8 @@ typedef struct {
   int response_timeout;
   int max_redirects;
   ap_regex_t* limit_re;
+  char **ignore_headers;
+  int    num_ignore_headers;
 } reproxy_conf;
 
 static void* config_create(apr_pool_t* p)
@@ -61,6 +63,8 @@ static void* config_create(apr_pool_t* p)
   conf->response_timeout = REPROXY_TIMEOUT_UNSET;
   conf->max_redirects = REPROXY_MAX_REDIRECTS_UNSET;
   conf->limit_re = NULL;
+  conf->ignore_headers = NULL;
+  conf->num_ignore_headers = 0;
   return conf;
 }
 
@@ -118,6 +122,27 @@ static const char* set_reproxy_limit_re(cmd_parms* cmd, void* _conf,
       == NULL) {
     return "Failed to compile regular expression";
   }
+  return NULL;
+}
+
+static const char* set_reproxy_ignore_header(cmd_parms* cmd, void* _conf,
+                    const char* value)
+{
+  reproxy_conf* conf = _conf;
+  char **new;
+  char *copy;
+
+  new = apr_palloc( cmd->pool, sizeof(char *) * (conf->num_ignore_headers + 1 ) );
+  if ( conf->ignore_headers != NULL ) {
+    memcpy( new, conf->ignore_headers, conf->num_ignore_headers * sizeof(char *) );
+  }
+  conf->ignore_headers = new;
+  copy = apr_palloc( cmd->pool, sizeof(char) * ( strlen(value) + 1 ) );
+  memcpy( copy, value, strlen(value) * sizeof(char) + 1 );
+  copy[ strlen(value) ] = '\0';
+  conf->ignore_headers[ conf->num_ignore_headers++ ] = copy;
+}
+
   return NULL;
 }
 
@@ -286,7 +311,8 @@ static apr_status_t send_reproxy_request(reproxy_conf* conf, request_rec* r,
   return rv;
 }
 
-static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
+static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
+                        const char *url,
 					    apr_socket_t* sock,
 					    char* buf, char** redirect_url,
 					    apr_off_t* content_length,
@@ -344,17 +370,33 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
     int i;
     for (i = 0; i < num_headers; i++) {
       char *name, *value;
-      if ( strncasecmp(headers[i].name, "Date", headers[i].name_len) == 0 ) {
-        continue;
+      int ignum;
+      int ignore = 0;
+
+      name = apr_palloc(r->pool, headers[i].name_len + 1);
+      memcpy(name, headers[i].name, headers[i].name_len);
+      name[headers[i].name_len] = '\0';
+
+      for ( ignum = 0; ignum < conf->num_ignore_headers; ignum++ ) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
+		   "reproxy: check %s against header %s", name, conf->ignore_headers[ignum] );
+
+        if ( strncasecmp(headers[i].name, conf->ignore_headers[ignum], headers[i].name_len) == 0 ) {
+          ignore = 1;
+          break;
+        }
+      }
+
+      if (ignore) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
+		   "reproxy: ignoring header %s", name );
+        break;
       }
 
       value = apr_palloc(r->pool, headers[i].value_len + 1);
       memcpy(value, headers[i].value, headers[i].value_len);
       value[headers[i].value_len] = '\0';
 
-      name = apr_palloc(r->pool, headers[i].name_len + 1);
-      memcpy(name, headers[i].name, headers[i].name_len);
-      name[headers[i].name_len] = '\0';
 
       apr_table_add( r->headers_out, name, value );
     }
@@ -426,8 +468,8 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
     if ((rv = send_reproxy_request(conf, r, url, &sock)) != APR_SUCCESS)
       goto ON_EXIT;
     /* handle response */
-    if ((rv = handle_reproxy_response(r, url, sock, response_buf, &redirect_url,
-				      &clength, &buffered_content,
+    if ((rv = handle_reproxy_response(conf, r, url, sock, response_buf,
+                      &redirect_url, &clength, &buffered_content,
 				      &buffered_content_length))
 	!= APR_SUCCESS)
       goto ON_EXIT;
@@ -580,6 +622,8 @@ static const command_rec reproxy_cmds[] = {
 		"max redirection # of the reproxy connection (in seconds)"),
   AP_INIT_TAKE1("ReproxyLimitURL", set_reproxy_limit_re, NULL, OR_OPTIONS,
 		"regex to limit access of the reproxy module"),
+  AP_INIT_TAKE1("ReproxyIgnoreHeader", set_reproxy_ignore_header, NULL, OR_OPTIONS,
+        "do not propagate these headers"),
   { NULL },
 };
 
