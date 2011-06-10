@@ -141,7 +141,6 @@ static const char* set_reproxy_ignore_header(cmd_parms* cmd, void* _conf,
   memcpy( copy, value, strlen(value) * sizeof(char) + 1 );
   copy[ strlen(value) ] = '\0';
   conf->ignore_headers[ conf->num_ignore_headers++ ] = copy;
-}
 
   return NULL;
 }
@@ -373,14 +372,7 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
       int ignum;
       int ignore = 0;
 
-      name = apr_palloc(r->pool, headers[i].name_len + 1);
-      memcpy(name, headers[i].name, headers[i].name_len);
-      name[headers[i].name_len] = '\0';
-
       for ( ignum = 0; ignum < conf->num_ignore_headers; ignum++ ) {
-        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
-		   "reproxy: check %s against header %s", name, conf->ignore_headers[ignum] );
-
         if ( strncasecmp(headers[i].name, conf->ignore_headers[ignum], headers[i].name_len) == 0 ) {
           ignore = 1;
           break;
@@ -388,10 +380,12 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
       }
 
       if (ignore) {
-        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server,
-		   "reproxy: ignoring header %s", name );
         break;
       }
+
+      name = apr_palloc(r->pool, headers[i].name_len + 1);
+      memcpy(name, headers[i].name, headers[i].name_len);
+      name[headers[i].name_len] = '\0';
 
       value = apr_palloc(r->pool, headers[i].value_len + 1);
       memcpy(value, headers[i].value, headers[i].value_len);
@@ -401,7 +395,6 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
       apr_table_add( r->headers_out, name, value );
     }
   }
-
 
   switch (status) {
   case 200: /* ok, fill in the values */
