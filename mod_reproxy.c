@@ -343,10 +343,20 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
   { /* Copy headers so that it's propagated */
     int i;
     for (i = 0; i < num_headers; i++) {
+      char *name, *value;
       if ( strncasecmp(headers[i].name, "Date", headers[i].name_len) == 0 ) {
         continue;
       }
-      apr_table_add( r->headers_out, headers[i].name, headers[i].value );
+
+      value = apr_palloc(r->pool, headers[i].value_len + 1);
+      memcpy(value, headers[i].value, headers[i].value_len);
+      value[headers[i].value_len] = '\0';
+
+      name = apr_palloc(r->pool, headers[i].name_len + 1);
+      memcpy(name, headers[i].name, headers[i].name_len);
+      name[headers[i].name_len] = '\0';
+
+      apr_table_add( r->headers_out, name, value );
     }
   }
 
