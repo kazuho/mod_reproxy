@@ -92,6 +92,8 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   SET(response_timeout, REPROXY_TIMEOUT_UNSET);
   SET(max_redirects, REPROXY_MAX_REDIRECTS_UNSET);
   SET(limit_re, NULL);
+  SET(ignore_headers, NULL);
+  SET(num_ignore_headers, 0);
   
 #undef SET
   
