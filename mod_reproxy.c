@@ -342,7 +342,7 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
  PARSE_COMPLETE:
   { /* Copy headers so that it's propagated */
     int i;
-    for (i = 0; i != num_headers; i++) {
+    for (i = 0; i < num_headers; i++) {
       if ( strncasecmp(headers[i].name, "Date", headers[i].name_len) == 0 ) {
         continue;
       }
