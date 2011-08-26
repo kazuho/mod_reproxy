@@ -508,37 +508,39 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
   }
   
   /* send all data */
-  while (clength == -1 || sent_length != clength) {
-    void* d;
-    apr_bucket* b;
-    apr_size_t l = 131072; /* FIXME should the bufsz be configurable? */
-    if (clength != -1 && clength - sent_length < l)
-      l = clength - sent_length;
-    if ((d = malloc(l)) == NULL) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "reproxy: no memory");
-      rv = HTTP_INTERNAL_SERVER_ERROR;
-    }
-    do {
-      rv = apr_socket_recv(sock, d, &l);
-    } while (APR_STATUS_IS_EAGAIN(rv));
-    if (l == 0 && APR_STATUS_IS_EOF(rv)) {
-      free(d);
-      break;
-    } else if (rv != APR_SUCCESS) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
-		   "reproxy: an error occurred while transmitting content from url: %s",
-		   url);
-      free(d);
-      goto ON_EXIT;
-    }
-    b = apr_bucket_heap_create(d, l, free, in_bb->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(in_bb, b);
-    sent_length += l;
-    if ((rv = ap_pass_brigade(filt->next, in_bb)) != APR_SUCCESS) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
-		   "reproxy: failed to pass response to the next filter while processing url: %s",
-		   url);
-      goto ON_EXIT;
+  if ( ! r->header_only ) {
+    while (clength == -1 || sent_length != clength) {
+      void* d;
+      apr_bucket* b;
+      apr_size_t l = 131072; /* FIXME should the bufsz be configurable? */
+      if (clength != -1 && clength - sent_length < l)
+        l = clength - sent_length;
+      if ((d = malloc(l)) == NULL) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "reproxy: no memory");
+        rv = HTTP_INTERNAL_SERVER_ERROR;
+      }
+      do {
+        rv = apr_socket_recv(sock, d, &l);
+      } while (APR_STATUS_IS_EAGAIN(rv));
+      if (l == 0 && APR_STATUS_IS_EOF(rv)) {
+        free(d);
+        break;
+      } else if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
+  		   "reproxy: an error occurred while transmitting content from url: %s",
+  		   url);
+        free(d);
+        goto ON_EXIT;
+      }
+      b = apr_bucket_heap_create(d, l, free, in_bb->bucket_alloc);
+      APR_BRIGADE_INSERT_TAIL(in_bb, b);
+      sent_length += l;
+      if ((rv = ap_pass_brigade(filt->next, in_bb)) != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
+  		   "reproxy: failed to pass response to the next filter while processing url: %s",
+  		   url);
+        goto ON_EXIT;
+      }
     }
   }
   
