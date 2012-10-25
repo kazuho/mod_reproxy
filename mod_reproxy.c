@@ -51,6 +51,8 @@ typedef struct {
   int response_timeout;
   int max_redirects;
   ap_regex_t* limit_re;
+  char **ignore_headers;
+  int    num_ignore_headers;
 } reproxy_conf;
 
 static void* config_create(apr_pool_t* p)
@@ -61,6 +63,8 @@ static void* config_create(apr_pool_t* p)
   conf->response_timeout = REPROXY_TIMEOUT_UNSET;
   conf->max_redirects = REPROXY_MAX_REDIRECTS_UNSET;
   conf->limit_re = NULL;
+  conf->ignore_headers = NULL;
+  conf->num_ignore_headers = 0;
   return conf;
 }
 
@@ -88,6 +92,8 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   SET(response_timeout, REPROXY_TIMEOUT_UNSET);
   SET(max_redirects, REPROXY_MAX_REDIRECTS_UNSET);
   SET(limit_re, NULL);
+  SET(ignore_headers, NULL);
+  SET(num_ignore_headers, 0);
   
 #undef SET
   
@@ -118,6 +124,26 @@ static const char* set_reproxy_limit_re(cmd_parms* cmd, void* _conf,
       == NULL) {
     return "Failed to compile regular expression";
   }
+  return NULL;
+}
+
+static const char* set_reproxy_ignore_header(cmd_parms* cmd, void* _conf,
+                    const char* value)
+{
+  reproxy_conf* conf = _conf;
+  char **new;
+  char *copy;
+
+  new = apr_palloc( cmd->pool, sizeof(char *) * (conf->num_ignore_headers + 1 ) );
+  if ( conf->ignore_headers != NULL ) {
+    memcpy( new, conf->ignore_headers, conf->num_ignore_headers * sizeof(char *) );
+  }
+  conf->ignore_headers = new;
+  copy = apr_palloc( cmd->pool, sizeof(char) * ( strlen(value) + 1 ) );
+  memcpy( copy, value, strlen(value) * sizeof(char) + 1 );
+  copy[ strlen(value) ] = '\0';
+  conf->ignore_headers[ conf->num_ignore_headers++ ] = copy;
+
   return NULL;
 }
 
@@ -286,7 +312,8 @@ static apr_status_t send_reproxy_request(reproxy_conf* conf, request_rec* r,
   return rv;
 }
 
-static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
+static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
+                        const char *url,
 					    apr_socket_t* sock,
 					    char* buf, char** redirect_url,
 					    apr_off_t* content_length,
@@ -340,6 +367,37 @@ static apr_status_t handle_reproxy_response(request_rec* r, const char *url,
   return HTTP_INTERNAL_SERVER_ERROR;
   
  PARSE_COMPLETE:
+  { /* Copy headers so that it's propagated */
+    int i;
+    for (i = 0; i < num_headers; i++) {
+      char *name, *value;
+      int ignum;
+      int ignore = 0;
+
+      for ( ignum = 0; ignum < conf->num_ignore_headers; ignum++ ) {
+        if ( strncasecmp(headers[i].name, conf->ignore_headers[ignum], headers[i].name_len) == 0 ) {
+          ignore = 1;
+          break;
+        }
+      }
+
+      if (ignore) {
+        break;
+      }
+
+      name = apr_palloc(r->pool, headers[i].name_len + 1);
+      memcpy(name, headers[i].name, headers[i].name_len);
+      name[headers[i].name_len] = '\0';
+
+      value = apr_palloc(r->pool, headers[i].value_len + 1);
+      memcpy(value, headers[i].value, headers[i].value_len);
+      value[headers[i].value_len] = '\0';
+
+
+      apr_table_add( r->headers_out, name, value );
+    }
+  }
+
   switch (status) {
   case 200: /* ok, fill in the values */
   case 404: /* pass though some other values, too */
@@ -405,8 +463,8 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
     if ((rv = send_reproxy_request(conf, r, url, &sock)) != APR_SUCCESS)
       goto ON_EXIT;
     /* handle response */
-    if ((rv = handle_reproxy_response(r, url, sock, response_buf, &redirect_url,
-				      &clength, &buffered_content,
+    if ((rv = handle_reproxy_response(conf, r, url, sock, response_buf,
+                      &redirect_url, &clength, &buffered_content,
 				      &buffered_content_length))
 	!= APR_SUCCESS)
       goto ON_EXIT;
@@ -450,43 +508,41 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
   }
   
   /* send all data */
-  while (clength == -1 || sent_length != clength) {
-    void* d;
-    apr_bucket* b;
-    apr_size_t l = 131072; /* FIXME should the bufsz be configurable? */
-    if (clength != -1 && clength - sent_length < l)
-      l = clength - sent_length;
-    if ((d = malloc(l)) == NULL) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "reproxy: no memory");
-      rv = HTTP_INTERNAL_SERVER_ERROR;
-    }
-    do {
-      rv = apr_socket_recv(sock, d, &l);
-    } while (APR_STATUS_IS_EAGAIN(rv));
-    if (l == 0 && APR_STATUS_IS_EOF(rv)) {
-      free(d);
-      break;
-    } else if (rv != APR_SUCCESS) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
-		   "reproxy: an error occurred while transmitting content from url: %s",
-		   url);
-      free(d);
-      goto ON_EXIT;
-    }
-    b = apr_bucket_heap_create(d, l, free, in_bb->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(in_bb, b);
-    sent_length += l;
-    if ((rv = ap_pass_brigade(filt->next, in_bb)) != APR_SUCCESS) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
-		   "reproxy: failed to pass response to the next filter while processing url: %s",
-		   url);
-      goto ON_EXIT;
+  if ( ! r->header_only ) {
+    while (clength == -1 || sent_length != clength) {
+      void* d;
+      apr_bucket* b;
+      apr_size_t l = 131072; /* FIXME should the bufsz be configurable? */
+      if (clength != -1 && clength - sent_length < l)
+        l = clength - sent_length;
+      if ((d = malloc(l)) == NULL) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "reproxy: no memory");
+        rv = HTTP_INTERNAL_SERVER_ERROR;
+      }
+      do {
+        rv = apr_socket_recv(sock, d, &l);
+      } while (APR_STATUS_IS_EAGAIN(rv));
+      if (l == 0 && APR_STATUS_IS_EOF(rv)) {
+        free(d);
+        break;
+      } else if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
+  		   "reproxy: an error occurred while transmitting content from url: %s",
+  		   url);
+        free(d);
+        goto ON_EXIT;
+      }
+      b = apr_bucket_heap_create(d, l, free, in_bb->bucket_alloc);
+      APR_BRIGADE_INSERT_TAIL(in_bb, b);
+      sent_length += l;
+      if ((rv = ap_pass_brigade(filt->next, in_bb)) != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
+  		   "reproxy: failed to pass response to the next filter while processing url: %s",
+  		   url);
+        goto ON_EXIT;
+      }
     }
   }
-  
-  /* send eof */
-  APR_BRIGADE_INSERT_TAIL(in_bb, apr_bucket_eos_create(in_bb->bucket_alloc));
-  rv = ap_pass_brigade(filt->next, in_bb);
   
  ON_EXIT:
   if (sent_length == 0 && rv != APR_SUCCESS) {
@@ -563,6 +619,8 @@ static const command_rec reproxy_cmds[] = {
 		"max redirection # of the reproxy connection (in seconds)"),
   AP_INIT_TAKE1("ReproxyLimitURL", set_reproxy_limit_re, NULL, OR_OPTIONS,
 		"regex to limit access of the reproxy module"),
+  AP_INIT_TAKE1("ReproxyIgnoreHeader", set_reproxy_ignore_header, NULL, OR_OPTIONS,
+        "do not propagate these headers"),
   { NULL },
 };
 
