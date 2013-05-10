@@ -260,6 +260,36 @@ static apr_off_t fetch_phr_content_length(struct phr_header* headers,
   return -1;
 }
 
+static char* make_header_field(apr_table_t* headers, reproxy_conf* conf,
+			       apr_pool_t* p)
+{
+  char *buf;
+  size_t buf_sz = 0;
+  size_t write_sz = 0;
+  size_t num = conf->num_forward_headers;
+  char *targets = apr_pcalloc(p, num);
+  size_t i;
+  for (i = 0; i < num; ++i) {
+    char *key = conf->forward_headers[i];
+    const char *val = apr_table_get(headers, key);
+    if (val) {
+      /* 4 means strlen(": ") + strlen("\r\n") */
+      buf_sz += strlen(key) + strlen(val) + 4;
+      targets[i] = 1;
+    }
+  }
+  if (buf_sz == 0)
+    return "";
+  buf = apr_palloc(p, buf_sz + 1);
+  for (i = 0; i < num; ++i)
+    if (targets[i]) {
+      char *key = conf->forward_headers[i];
+      const char *val = apr_table_get(headers, key);
+      write_sz += sprintf(buf + write_sz, "%s: %s\r\n", key, val);
+    }
+  return buf;
+}
+
 static apr_status_t send_reproxy_request(reproxy_conf* conf, request_rec* r,
 					 const char* url, apr_socket_t** _sock)
 {
@@ -311,8 +341,10 @@ static apr_status_t send_reproxy_request(reproxy_conf* conf, request_rec* r,
 		     "%s %s HTTP/1.0\r\n"
 		     "Host: %s\r\n"
 		     "User-Agent: mod_reproxy/" REPROXY_VERSION_STR "\r\n"
+		     "%s" /* forwarding client headers */
 		     "\r\n",
-             r->header_only ? "HEAD" : "GET", path, hostport);
+		     r->header_only ? "HEAD" : "GET", path, hostport,
+		     make_header_field(r->headers_in, conf, r->pool));
   if ((rv = send_fully(sock, req, req + strlen(req))) != APR_SUCCESS) {
     ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
 		 "reproxy: an error occured while sending request to url: %s\n",
