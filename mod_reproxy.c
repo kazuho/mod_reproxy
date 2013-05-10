@@ -45,6 +45,9 @@ module AP_MODULE_DECLARE_DATA reproxy_module;
 
 #define MAX_RESPONSE_SZ 16384
 
+#define REPROXY_CONF_IGNORE_POS 0
+#define REPROXY_CONF_FORWARD_POS 1
+
 typedef struct {
   int enabled;
   int request_timeout;
@@ -53,7 +56,19 @@ typedef struct {
   ap_regex_t* limit_re;
   char **ignore_headers;
   int    num_ignore_headers;
+  char **forward_headers;
+  int    num_forward_headers;
 } reproxy_conf;
+
+static struct {
+  size_t headers;
+  size_t num;
+} conf_offset[] = {
+  {APR_OFFSETOF(reproxy_conf, ignore_headers),
+   APR_OFFSETOF(reproxy_conf, num_ignore_headers)},
+  {APR_OFFSETOF(reproxy_conf, forward_headers),
+   APR_OFFSETOF(reproxy_conf, num_forward_headers)}
+};
 
 static void* config_create(apr_pool_t* p)
 {
@@ -65,6 +80,8 @@ static void* config_create(apr_pool_t* p)
   conf->limit_re = NULL;
   conf->ignore_headers = NULL;
   conf->num_ignore_headers = 0;
+  conf->forward_headers = NULL;
+  conf->num_forward_headers = 0;
   return conf;
 }
 
@@ -94,6 +111,8 @@ static void* reproxy_config_merge(apr_pool_t* p, void* _base, void* _override)
   SET(limit_re, NULL);
   SET(ignore_headers, NULL);
   SET(num_ignore_headers, 0);
+  SET(forward_headers, NULL);
+  SET(num_forward_headers, 0);
   
 #undef SET
   
@@ -127,22 +146,25 @@ static const char* set_reproxy_limit_re(cmd_parms* cmd, void* _conf,
   return NULL;
 }
 
-static const char* set_reproxy_ignore_header(cmd_parms* cmd, void* _conf,
+static const char* set_reproxy_string_to_table(cmd_parms* cmd, void* _conf,
                     const char* value)
 {
   reproxy_conf* conf = _conf;
+  size_t pos = (size_t)cmd->info;
   char **new;
   char *copy;
+  char ***table = (char***)((char*)conf + conf_offset[pos].headers);
+  int *num = (int*)((char*)conf + conf_offset[pos].num);
 
-  new = apr_palloc( cmd->pool, sizeof(char *) * (conf->num_ignore_headers + 1 ) );
-  if ( conf->ignore_headers != NULL ) {
-    memcpy( new, conf->ignore_headers, conf->num_ignore_headers * sizeof(char *) );
+  new = apr_palloc( cmd->pool, sizeof(char *) * (*num + 1 ) );
+  if ( *table != NULL ) {
+    memcpy( new, *table, *num * sizeof(char *) );
   }
-  conf->ignore_headers = new;
+  *table = new;
   copy = apr_palloc( cmd->pool, sizeof(char) * ( strlen(value) + 1 ) );
   memcpy( copy, value, strlen(value) * sizeof(char) + 1 );
   copy[ strlen(value) ] = '\0';
-  conf->ignore_headers[ conf->num_ignore_headers++ ] = copy;
+  (*table)[ (*num)++ ] = copy;
 
   return NULL;
 }
@@ -619,8 +641,12 @@ static const command_rec reproxy_cmds[] = {
 		"max redirection # of the reproxy connection (in seconds)"),
   AP_INIT_TAKE1("ReproxyLimitURL", set_reproxy_limit_re, NULL, OR_OPTIONS,
 		"regex to limit access of the reproxy module"),
-  AP_INIT_TAKE1("ReproxyIgnoreHeader", set_reproxy_ignore_header, NULL, OR_OPTIONS,
-        "do not propagate these headers"),
+  AP_INIT_TAKE1("ReproxyIgnoreHeader", set_reproxy_string_to_table,
+                (void*)REPROXY_CONF_IGNORE_POS, OR_OPTIONS,
+                "do not propagate these headers"),
+  AP_INIT_TAKE1("ReproxyForwardClientHeader", set_reproxy_string_to_table,
+                (void*)REPROXY_CONF_FORWARD_POS, OR_OPTIONS,
+                "header of client request forwarding to reproxy target"),
   { NULL },
 };
 
