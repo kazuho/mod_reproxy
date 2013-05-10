@@ -454,7 +454,10 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
 
   switch (status) {
   case 200: /* ok, fill in the values */
+  case 206: /* partial response */
   case 404: /* pass though some other values, too */
+    r->status = status;
+    r->status_line = ap_get_status_line(status);
     break;
   case 301: case 302: case 303: case 307: /* redicet */
     if ((*redirect_url = find_phr_header(headers, num_headers, "location",
