@@ -22,3 +22,7 @@ ReproxyMaxRedirects <number>
 # if set, mod_reproxy would only retreive the resources from URL that matches
 # the given pattern (default: none)
 ReproxyLimitURL <regex>
+
+# if set, mod_reproxy will forward specified header from client request
+# to the reproxied server.
+ReproxyForwardClientHeader <string>
