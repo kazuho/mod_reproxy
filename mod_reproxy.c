@@ -583,6 +583,7 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
       } while (APR_STATUS_IS_EAGAIN(rv));
       if (l == 0 && APR_STATUS_IS_EOF(rv)) {
         free(d);
+        rv = APR_SUCCESS;
         break;
       } else if (rv != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
