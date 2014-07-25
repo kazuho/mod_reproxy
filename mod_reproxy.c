@@ -455,6 +455,7 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
   switch (status) {
   case 200: /* ok, fill in the values */
   case 206: /* partial response */
+  case 304: /* not modified */
   case 404: /* pass though some other values, too */
   case 416: /* illegal range request */
     r->status = status;
