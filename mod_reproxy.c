@@ -455,6 +455,7 @@ static apr_status_t handle_reproxy_response(reproxy_conf *conf, request_rec* r,
   switch (status) {
   case 200: /* ok, fill in the values */
   case 206: /* partial response */
+  case 304: /* not modified */
   case 404: /* pass though some other values, too */
   case 416: /* illegal range request */
     r->status = status;
@@ -582,6 +583,7 @@ static apr_status_t rewrite_response(ap_filter_t* filt,
       } while (APR_STATUS_IS_EAGAIN(rv));
       if (l == 0 && APR_STATUS_IS_EOF(rv)) {
         free(d);
+        rv = APR_SUCCESS;
         break;
       } else if (rv != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_ERR, rv, r->server,
